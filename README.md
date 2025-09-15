@@ -1,13 +1,10 @@
 
 # SemiDAVIL: Semi-supervised Domain Adaptation with Vision-Language Guidance
 
-This repository contains a clean, complete PyTorch implementation of the paper **"SemiDAVIL: Semi-supervised Domain Adaptation with Vision-Language Guidance for Semantic Segmentation"**.
 
 ## Overview
 
-SemiDAVIL is a framework for Semi-Supervised Domain Adaptation (SSDA) that improves semantic segmentation performance when adapting from a labeled source domain (e.g., synthetic data) to a target domain with very few labels (e.g., real-world scenes). It uniquely integrates guidance from Vision-Language Models (VLMs) to enhance semantic understanding and mitigate class confusion.
-
-
+SemiDAVIL is a framework for Semi-Supervised Domain Adaptation (SSDA) that improves semantic segmentation performance when adapting from a labeled source domain (e.g., synthetic data) to a target domain with very few labels (e.g., real-world scenes).
 
 ---
 
@@ -99,6 +96,7 @@ If this implementation is useful for your research, please cite the original pap
 
 ```
 ```
+
 
 
 
