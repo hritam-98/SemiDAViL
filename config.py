@@ -6,7 +6,7 @@ import torch
 
 # --- Training Hyperparameters ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-NUM_ITERATIONS = 40000  # Total training iterations as per the paper
+NUM_ITERATIONS = 40000  # Total training iterations
 BATCH_SIZE = 4          # Adjust based on your GPU memory
 NUM_WORKERS = 4         # Number of workers for data loading
 LEARNING_RATE = 1e-4    # Initial learning rate
