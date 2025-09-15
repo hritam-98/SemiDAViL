@@ -22,7 +22,7 @@ SemiDAVIL is a framework for Semi-Supervised Domain Adaptation (SSDA) that impro
 
 ## File Structure
 
-
+<pre>
 .
 ├── data/
 │   ├── datasets.py     \# PyTorch Dataset classes for GTA5 & Cityscapes
@@ -38,7 +38,7 @@ SemiDAVIL is a framework for Semi-Supervised Domain Adaptation (SSDA) that impro
 └── README.md             \# This file
 
 
-
+</pre>
 
 ## Setup and Installation
 
@@ -99,5 +99,6 @@ If this implementation is useful for your research, please cite the original pap
 
 ```
 ```
+
 
 
