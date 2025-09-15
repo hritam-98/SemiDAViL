@@ -1,0 +1,9 @@
+torch
+torchvision
+transformers
+ftfy
+regex
+tqdm
+Pillow
+openai-clip
+numpy
