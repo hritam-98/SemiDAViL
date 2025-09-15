@@ -1,42 +1,42 @@
-# train.py
-# This is the main script to run the training process for the SemiDAVIL model.
-
+"""
+Main training script for the SemiDAVIL framework.
+"""
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset # Using dummy data for demonstration
-import torch.nn.functional as F
-import copy
+from tqdm import tqdm
+import os
 
+# It's good practice to import config as a module to avoid namespace pollution
 import config
 from models.semidavil import SemiDAVIL
 from losses import DyCELoss, ConsistencyLoss
-from utils import update_teacher_model_ema, setup_logger
+from utils import update_teacher_model
+from data.loader import get_data_loaders
 
-def main():
-    logger = setup_logger()
-    logger.info("Starting SemiDAVIL training process...")
-    logger.info(f"Using device: {config.DEVICE}")
+def train():
+    """Main training loop for SemiDAVIL."""
+    print("--- Initializing SemiDAVIL Training ---")
+    print(f"Using device: {config.DEVICE}")
 
-    # --- 1. Model Initialization ---
-    model = SemiDAVIL(num_classes=config.NUM_CLASSES).to(config.DEVICE)
+    # --- Setup ---
+    if not os.path.exists(config.CHECKPOINT_DIR):
+        os.makedirs(config.CHECKPOINT_DIR)
+
+    # --- Data Loaders ---
+    source_loader, target_labeled_loader, target_unlabeled_loader = get_data_loaders(config)
     
-    # Separate parameters for student and teacher for clarity in optimizer
-    student_params = [
-        {'params': model.student_vision_encoder.parameters()},
-        {'params': model.student_dlg.parameters()},
-        {'params': model.student_decoder.parameters()}
-    ]
+    # Use iterators for continuous sampling
+    source_iter = iter(source_loader)
+    target_labeled_iter = iter(target_labeled_loader)
+    target_unlabeled_iter = iter(target_unlabeled_loader)
 
-    # --- 2. Optimizer and Schedulers ---
+    # --- Model, Optimizer, Losses ---
+    model = SemiDAVIL(num_classes=config.NUM_CLASSES, device=config.DEVICE).to(config.DEVICE)
     optimizer = optim.AdamW(
-        student_params,
+        model.student_network.parameters(),
         lr=config.LEARNING_RATE,
         weight_decay=config.WEIGHT_DECAY
     )
-    # The paper mentions exponential decay
-    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.LR_DECAY_FACTOR)
-
-    # --- 3. Loss Functions ---
     dyce_loss_fn = DyCELoss(
         num_classes=config.NUM_CLASSES,
         hard_percentage=config.DYCE_HARD_PERCENTAGE,
@@ -44,89 +44,66 @@ def main():
     )
     consistency_loss_fn = ConsistencyLoss(threshold=config.PSEUDO_LABEL_THRESHOLD)
 
-    # --- 4. Dataloaders (Using Dummy Data) ---
-    # In a real implementation, replace this with the dataset class from dataset.py
-    # that loads GTA5/Cityscapes data.
-    logger.info("Setting up dummy dataloaders for demonstration.")
-    # Assuming CROP_SIZE for all inputs for simplicity
-    H, W = config.CROP_SIZE
-    # Create a mix of labeled (source + target) and unlabeled target data
-    # Let's say batch size is 4, with 2 labeled and 2 unlabeled
-    labeled_data = torch.randn(config.BATCH_SIZE // 2, 3, H, W)
-    labeled_targets = torch.randint(0, config.NUM_CLASSES, (config.BATCH_SIZE // 2, H, W))
-    unlabeled_data = torch.randn(config.BATCH_SIZE // 2, 3, H, W)
-    
-    dummy_dataset = TensorDataset(labeled_data, labeled_targets, unlabeled_data)
-    # Use a persistent dataloader to simulate iterating for N steps
-    dataloader = DataLoader(dummy_dataset, batch_size=1, shuffle=True, num_workers=config.NUM_WORKERS, persistent_workers=True)
-    data_iterator = iter(dataloader)
-    
-    # --- 5. Training Loop ---
-    model.train()
-    for i in range(config.NUM_ITERATIONS):
-        try:
-            labeled_images, gt_labels, unlabeled_images = next(data_iterator)
-        except StopIteration:
-            data_iterator = iter(dataloader) # Reset iterator
-            labeled_images, gt_labels, unlabeled_images = next(data_iterator)
-
-        # Move data to device
-        labeled_images = labeled_images.squeeze(0).to(config.DEVICE)
-        gt_labels = gt_labels.squeeze(0).to(config.DEVICE)
-        unlabeled_images = unlabeled_images.squeeze(0).to(config.DEVICE)
-
-        # --- Forward Pass ---
-        student_labeled_logits, student_unlabeled_logits, teacher_unlabeled_logits = model(
-            labeled_images, unlabeled_images
-        )
-        
-        # --- Loss Calculation ---
-        # Supervised loss on labeled data
-        loss_dyce = dyce_loss_fn(student_labeled_logits, gt_labels)
-        
-        # Consistency loss on unlabeled data
-        loss_ct = consistency_loss_fn(student_unlabeled_logits, teacher_unlabeled_logits.detach())
-        
-        total_loss = loss_dyce + loss_ct
-
-        # --- Backward Pass & Optimization ---
+    print("\n--- Starting Training Loop ---")
+    for i in tqdm(range(config.NUM_ITERATIONS), desc="Training Iterations"):
+        model.train()
         optimizer.zero_grad()
+        
+        # --- Fetch Data Batches ---
+        try:
+            source_images, source_labels = next(source_iter)
+        except StopIteration:
+            source_iter = iter(source_loader)
+            source_images, source_labels = next(source_iter)
+        
+        try:
+            target_labeled_images, target_labels = next(target_labeled_iter)
+        except StopIteration:
+            target_labeled_iter = iter(target_labeled_loader)
+            target_labeled_images, target_labels = next(target_labeled_iter)
+        
+        try:
+            target_unlabeled_images = next(target_unlabeled_iter)
+        except StopIteration:
+            target_unlabeled_iter = iter(target_unlabeled_loader)
+            target_unlabeled_images = next(target_unlabeled_iter)
+
+        # Move data to the configured device
+        source_images, source_labels = source_images.to(config.DEVICE), source_labels.to(config.DEVICE)
+        target_labeled_images, target_labels = target_labeled_images.to(config.DEVICE), target_labels.to(config.DEVICE)
+        target_unlabeled_images = target_unlabeled_images.to(config.DEVICE)
+        
+        # --- Supervised Loss Calculation ---
+        labeled_images = torch.cat([source_images, target_labeled_images])
+        labeled_targets = torch.cat([source_labels, target_labels])
+        student_labeled_logits = model(labeled_images, network='student')
+        supervised_loss = dyce_loss_fn(student_labeled_logits, labeled_targets)
+
+        # --- Consistency Loss Calculation ---
+        teacher_unlabeled_logits = model(target_unlabeled_images, network='teacher')
+        student_unlabeled_logits = model(target_unlabeled_images, network='student')
+        consistency_loss = consistency_loss_fn(student_unlabeled_logits, teacher_unlabeled_logits)
+        
+        # --- Total Loss and Optimization ---
+        total_loss = supervised_loss + consistency_loss
         total_loss.backward()
         optimizer.step()
-        scheduler.step()
 
         # --- Update Teacher Model using EMA ---
-        # A deepcopy is needed for the first update, then we pass the model itself
-        # This implementation detail can be abstracted into the model class.
-        # For clarity, here we get the student and teacher components to update.
-        student_components = nn.ModuleList([
-            model.student_vision_encoder,
-            model.student_dlg,
-            model.student_decoder
-        ])
-        teacher_components = nn.ModuleList([
-            model.teacher_vision_encoder,
-            model.teacher_dlg,
-            model.teacher_decoder
-        ])
-        update_teacher_model_ema(student_components, teacher_components, config.EMA_ALPHA)
+        update_teacher_model(model.student_network, model.teacher_network, alpha=config.EMA_ALPHA)
 
-        if (i + 1) % config.LOG_INTERVAL == 0:
-            logger.info(
-                f"Iteration [{i+1}/{config.NUM_ITERATIONS}], "
-                f"Total Loss: {total_loss.item():.4f}, "
-                f"DyCE Loss: {loss_dyce.item():.4f}, "
-                f"Consistency Loss: {loss_ct.item():.4f}"
-            )
-            
-    logger.info("Training finished.")
-    # Save model checkpoint
-    torch.save(model.state_dict(), f"{config.CHECKPOINT_DIR}/semidavil_final.pth")
-    logger.info(f"Model saved to {config.CHECKPOINT_DIR}/semidavil_final.pth")
+        if (i + 1) % 100 == 0:
+            tqdm.write(f"Iter [{i+1}/{config.NUM_ITERATIONS}] | "
+                       f"Total Loss: {total_loss.item():.4f} | "
+                       f"Supervised (DyCE): {supervised_loss.item():.4f} | "
+                       f"Consistency: {consistency_loss.item():.4f}")
+
+    # --- Save Final Model ---
+    final_model_path = os.path.join(config.CHECKPOINT_DIR, "semidavil_final.pth")
+    torch.save(model.student_network.state_dict(), final_model_path)
+    print(f"\n--- Training Finished ---")
+    print(f"Final student model saved to {final_model_path}")
 
 if __name__ == "__main__":
-    # Create checkpoint directory if it doesn't exist
-    import os
-    if not os.path.exists(config.CHECKPOINT_DIR):
-        os.makedirs(config.CHECKPOINT_DIR)
-    main()
+    train()
+
