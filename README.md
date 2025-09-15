@@ -41,7 +41,7 @@ SemiDAVIL is a framework for Semi-Supervised Domain Adaptation (SSDA) that impro
 
 1.  **Clone the Repository:**
     ```bash
-    git clone [https://github.com/your-username/SemiDAVIL.git](https://github.com/your-username/SemiDAVIL.git)
+    git clone 
     cd SemiDAVIL
     ```
 
@@ -96,6 +96,7 @@ If this implementation is useful for your research, please cite the original pap
 
 ```
 ```
+
 
 
 
